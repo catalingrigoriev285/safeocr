@@ -144,7 +144,7 @@ def test_announce_with_tts_and_audio_endpoint(env, monkeypatch):
     class FakeTTS:
         name, voice = "fake", "test-voice"
 
-        def synthesize(self, text, out_path):
+        def synthesize(self, text, out_path, language=None):
             out_path.write_bytes(b"RIFF" + text.encode())
 
     svc = service()

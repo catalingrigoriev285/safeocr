@@ -108,6 +108,26 @@ export default function SettingsDialog({ open, onClose, chats, health, prefs, on
               onChange={(v) => onPrefsChange({ ...prefs, autoplayVoice: v })}
             />
           </div>
+
+          <div className={`${row} mt-4`}>
+            <div>
+              <p className="text-sm font-medium">Voice input &amp; voice mode</p>
+              <p className="mt-0.5 text-sm text-zinc-500">
+                {health?.stt?.enabled
+                  ? `Speech is transcribed locally (${health.stt.engine} · ${health.stt.model}). Use the mic in the composer to dictate, or the waveform button to talk.`
+                  : "Speech recognition is off. Set stt.enabled: true in config/settings.yaml (see the README)."}
+              </p>
+            </div>
+            <span
+              className={`mt-1 shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                health?.stt?.enabled
+                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+                  : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800"
+              }`}
+            >
+              {health?.stt?.enabled ? "On" : "Off"}
+            </span>
+          </div>
         </Section>
 
         <Section title="Data">
@@ -169,8 +189,10 @@ export default function SettingsDialog({ open, onClose, chats, health, prefs, on
             </dd>
             <dt className="text-zinc-500">OCR</dt>
             <dd>{health?.ocr_backend ?? "?"}</dd>
-            <dt className="text-zinc-500">Voice</dt>
+            <dt className="text-zinc-500">Voice output</dt>
             <dd>{ttsReady ? `${tts!.engine}${tts!.voice ? ` · ${tts!.voice}` : ""}` : "off"}</dd>
+            <dt className="text-zinc-500">Voice input</dt>
+            <dd>{health?.stt?.enabled ? `${health.stt.engine} · ${health.stt.model}` : "off"}</dd>
             <dt className="text-zinc-500">Backend</dt>
             <dd className="truncate font-mono text-xs leading-5">{API_URL}</dd>
           </dl>

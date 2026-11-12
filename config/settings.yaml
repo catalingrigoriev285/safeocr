@@ -46,13 +46,31 @@ tts:
   macos:                   # built-in `say` (macOS only, offline)
     voice: Ioana           # ro_RO voice; `say -v '?'` lists all
     rate: null
+    voices: {}             # per-language voices for spoken chat replies, e.g. {en: Samantha, fr: Thomas}
   piper:                   # pip install piper-tts (offline, CPU)
     model: models/piper/ro_RO-mihai-medium.onnx
+    voices: {}             # e.g. {en: models/piper/en_US-lessac-medium.onnx}
   openai:                  # any OpenAI-compatible /v1/audio/speech server
     base_url: http://localhost:11434/v1   # Ollama >= 0.40.11 (Apple Silicon); Kokoro: http://localhost:8880/v1
     model: phonon          # Ollama: phonon (en), phonon:40m-fr|de|es|pt; Kokoro: kokoro
     voice: ""              # empty = server default
     api_key_env: ""        # env var with an API key (remote providers only)
+
+# Voice input (speech-to-text) for dictation and voice mode. Audio is transcribed
+# locally and deleted immediately; it is never stored.
+stt:
+  enabled: true
+  engine: faster-whisper   # faster-whisper (local, pip install faster-whisper) | openai
+  language: null           # null = auto-detect, or force e.g. ro
+  faster_whisper:
+    model: small           # tiny | base | small | medium | large-v3 | turbo (first use downloads it)
+    device: cpu
+    compute_type: int8
+    download_root: models/whisper
+  openai:                  # any OpenAI-compatible /v1/audio/transcriptions server
+    base_url: http://localhost:8080/v1   # LocalAI / whisper.cpp server / speaches / OpenAI
+    model: whisper-1
+    api_key_env: ""
 
 api:
   cors_origins:

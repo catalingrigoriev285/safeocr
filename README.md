@@ -228,6 +228,9 @@ tts:
 ```
 Voice list: https://huggingface.co/rhasspy/piper-voices (Romanian: `ro_RO-mihai-medium`).
 
+> Piper's espeak-ng can't read its data when the venv sits under a very long path (over ~160 characters). It then
+> prints `Error processing file '.../espeak-ng-data/phontab'`. Keep the project/venv at a normal path.
+
 ### Option C: Ollama speech models (Phonon)
 
 Ollama 0.40.11+ serves text-to-speech through an OpenAI-compatible `POST /v1/audio/speech` endpoint. For now this
@@ -279,6 +282,62 @@ doc = s.ocr_document("doc_00.png")["document_id"]; s.detect_pii(doc)
 res = s.redact_image(doc)["result_id"]; s.verify_redaction(res)
 print(s.announce(res))            # "audio": true -> data/store/results/<id>/announcement.wav
 PY
+```
+
+## Voice input & voice mode (speech-to-text)
+
+The composer has two voice buttons:
+
+- **🎤 Dictate:** record, then click again. The text is transcribed and put into the input box for you to edit and send.
+- **Voice mode** (waveform button, shown when the input is empty): a hands-free conversation with an animated bubble
+  that follows your voice while listening and the reply while speaking. Listening ends when you stop talking.
+  Tap the bubble to interrupt the reply, use 🎤 to mute, ✕ or Esc to leave. Replies are spoken with the TTS engine
+  above. Every assistant reply also gets a 🔊 *Read aloud* button.
+
+Speech is transcribed **on the backend, locally**. The browser's built-in speech recognition is deliberately not
+used, because Chrome sends that audio to Google. Recordings go to a temp file, are transcribed, and are deleted.
+
+### Setup: faster-whisper (local Whisper, CPU)
+
+```bash
+pip install faster-whisper            # Python <= 3.14
+```
+```yaml
+stt:
+  enabled: true
+  engine: faster-whisper
+  language: null          # auto-detect (any language), or force e.g. ro
+  faster_whisper:
+    model: small          # first use downloads it to models/whisper (~460 MB)
+```
+Restart uvicorn. `GET /api/health` should show `"stt": {"enabled": true, ...}`. Model choice on CPU:
+`base` (~140 MB) is fast but weak for Romanian, `small` is a good balance (~2 s per sentence on Apple Silicon),
+and `medium`/`turbo` are more accurate but slower.
+
+The browser asks for microphone permission the first time; `localhost` counts as a secure origin.
+
+For spoken replies in several languages, add per-language voices so English answers aren't read with the Romanian
+voice:
+```yaml
+tts:
+  piper:
+    model: models/piper/ro_RO-mihai-medium.onnx
+    voices: { en: models/piper/en_US-lessac-medium.onnx }   # python -m piper.download_voices en_US-lessac-medium --data-dir models/piper
+  macos:
+    voices: { en: Samantha, fr: Thomas }
+```
+
+### Other speech-to-text servers
+
+`engine: openai` talks to any OpenAI-compatible `POST /v1/audio/transcriptions` server, for example LocalAI,
+the whisper.cpp server, speaches, or OpenAI's cloud (`model: whisper-1`; then the audio leaves your machine).
+Ollama has no documented transcription endpoint yet.
+
+```yaml
+stt:
+  enabled: true
+  engine: openai
+  openai: { base_url: http://localhost:8080/v1, model: whisper-1, api_key_env: "" }
 ```
 
 ## Next steps

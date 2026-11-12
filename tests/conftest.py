@@ -18,6 +18,10 @@ def env(tmp_path_factory, monkeypatch_session):
         capture_output=True,
     )
     monkeypatch_session.setenv("SAFEOCR_OCR__BACKEND", "stub")
+    # tests must not depend on the developer's local voice/LLM settings in config/settings.yaml
+    monkeypatch_session.setenv("SAFEOCR_TTS__ENABLED", "false")
+    monkeypatch_session.setenv("SAFEOCR_STT__ENABLED", "false")
+    monkeypatch_session.setenv("SAFEOCR_LLM__ENABLED", "false")
     monkeypatch_session.setenv("SAFEOCR_PATHS__SAMPLES_DIR", str(samples))
     monkeypatch_session.setenv("SAFEOCR_PATHS__STORE_DIR", str(store))
     monkeypatch_session.setenv("SAFEOCR_PATHS__UPLOADS_DIR", str(uploads))

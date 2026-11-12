@@ -9,7 +9,7 @@ export type ChatEvent =
   | ({ type: "recall" } & Recall)
   | { type: "token"; content: string }
   | { type: "error"; message: string }
-  | { type: "done"; history: HistoryMessage[] };
+  | { type: "done"; history: HistoryMessage[]; language?: string };
 
 export type ChatRequest = {
   message: string;

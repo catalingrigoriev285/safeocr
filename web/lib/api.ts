@@ -26,6 +26,7 @@ export type Health = {
   chat_model?: string;
   ollama?: { reachable: boolean; model_installed: boolean };
   tts?: { enabled: boolean; engine: string; voice: string | null; language: string };
+  stt?: { enabled: boolean; engine: string; model: string };
 };
 
 export type Step = {

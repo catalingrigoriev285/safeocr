@@ -35,6 +35,8 @@ export type Message = {
   recall?: Recall;
   error?: string;
   streaming?: boolean;
+  /** detected language of the reply (used to pick the read-aloud voice) */
+  language?: string;
 };
 
 export type ChatSession = {

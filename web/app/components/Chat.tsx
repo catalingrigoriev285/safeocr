@@ -16,6 +16,8 @@ import {
 } from "@/lib/chats";
 import { loadPrefs, savePrefs, type Prefs } from "@/lib/prefs";
 import SettingsDialog from "./SettingsDialog";
+import { DictationButton, ReadAloudButton } from "./voice/VoiceControls";
+import VoiceMode, { type Reply } from "./voice/VoiceMode";
 import Sidebar, { SidebarIcon } from "./Sidebar";
 
 const DESKTOP = "(min-width: 768px)";
@@ -253,7 +255,7 @@ function PlayButton({ resultId }: { resultId: string }) {
   );
 }
 
-function AssistantMessage({ m }: { m: Message }) {
+function AssistantMessage({ m, canSpeak }: { m: Message; canSpeak: boolean }) {
   const spoken = m.tools.find((t) => t.name === "announce" && t.ok && t.report?.audio);
   const showTyping = m.streaming && !m.text && (m.tools.length === 0 || m.tools.every((t) => t.ok !== undefined));
   return (
@@ -290,6 +292,11 @@ function AssistantMessage({ m }: { m: Message }) {
           </div>
         )}
         {m.text && <RichText text={m.text} />}
+        {m.text && !m.streaming && canSpeak && (
+          <div className="-mt-1 -ml-1.5">
+            <ReadAloudButton text={m.text} language={m.language} />
+          </div>
+        )}
         {showTyping && <Typing />}
         {m.error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
@@ -327,6 +334,7 @@ export default function Chat() {
   const [attachment, setAttachment] = useState<Attachment | null>(null);
   const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs());
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -447,10 +455,13 @@ export default function Chat() {
   };
 
   // ----- sending -----
-  const send = async (override?: string) => {
+  /** Send a message; resolves with the assistant's final reply (used by voice mode). */
+  const send = async (override?: string): Promise<Reply> => {
     const text = (override ?? input).trim();
     const att = attachment;
-    if ((!text && !att) || streaming || att?.uploading) return;
+    if ((!text && !att) || streaming || att?.uploading) return null;
+    let replyText = "";
+    let replyLanguage: string | null = null;
 
     const now = Date.now();
     const history = active?.history ?? [];
@@ -509,13 +520,16 @@ export default function Chat() {
           break;
         }
         case "token":
+          replyText += ev.content;
           update((m) => ({ ...m, text: m.text + ev.content }));
           break;
         case "error":
           update((m) => ({ ...m, error: ev.message }));
           break;
         case "done":
+          replyLanguage = ev.language ?? null;
           updateChat(id, (c) => ({ ...c, history: ev.history, updatedAt: Date.now() }));
+          update((m) => ({ ...m, language: ev.language }));
           break;
       }
     };
@@ -535,6 +549,7 @@ export default function Chat() {
       setStreamingId(null);
       abortRef.current = null;
     }
+    return { text: replyText.trim(), language: replyLanguage };
   };
 
   // ----- drag & drop anywhere on the chat -----
@@ -593,6 +608,15 @@ export default function Chat() {
       />
 
       <main className="relative flex min-w-0 flex-1 flex-col" {...dropHandlers}>
+        {voiceOpen && (
+          <VoiceMode
+            ask={(text) => send(text)}
+            onClose={() => setVoiceOpen(false)}
+            sttEnabled={!!health?.stt?.enabled}
+            ttsEnabled={!!health?.tts?.enabled}
+            hasAttachment={!!attachment && !attachment.uploading}
+          />
+        )}
         {dragging && (
           <div className="pointer-events-none absolute inset-3 z-20 flex flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-indigo-400 bg-indigo-50/90 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-200">
             {Icon.image}
@@ -660,7 +684,7 @@ export default function Chat() {
             </div>
           ) : (
             <div className="mx-auto max-w-3xl space-y-8 px-4 py-6">
-              {messages.map((m) => (m.role === "user" ? <UserMessage key={m.id} m={m} /> : <AssistantMessage key={m.id} m={m} />))}
+              {messages.map((m) => (m.role === "user" ? <UserMessage key={m.id} m={m} /> : <AssistantMessage key={m.id} m={m} canSpeak={!!health?.tts?.enabled} />))}
               <div ref={bottom} />
             </div>
           )}
@@ -739,9 +763,38 @@ export default function Chat() {
                 }}
                 className="max-h-[200px] flex-1 resize-none bg-transparent px-1 py-2 leading-6 outline-none placeholder:text-zinc-400"
               />
+              <DictationButton
+                enabled={!!health?.stt?.enabled}
+                onText={(t) => {
+                  setInput((v) => (v.trim() ? `${v.trimEnd()} ${t}` : t));
+                  requestAnimationFrame(() => {
+                    resizeTextarea();
+                    textarea.current?.focus();
+                  });
+                }}
+                onError={setNotice}
+              />
               {streaming ? (
                 <button onClick={stop} className="rounded-full bg-zinc-900 p-2.5 text-white dark:bg-zinc-100 dark:text-zinc-900" aria-label="Stop">
                   {Icon.stop}
+                </button>
+              ) : !input.trim() && !attachment ? (
+                <button
+                  onClick={() => {
+                    if (!health?.stt?.enabled) {
+                      setNotice("Voice mode needs speech recognition. Set stt.enabled: true in config/settings.yaml (see README).");
+                      return;
+                    }
+                    setNotice(null);
+                    setVoiceOpen(true);
+                  }}
+                  className="flex size-9 items-center justify-center rounded-full bg-zinc-900 text-white transition hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+                  aria-label="Start voice mode"
+                  title="Voice mode: talk with the assistant"
+                >
+                  <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+                    <path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4" />
+                  </svg>
                 </button>
               ) : (
                 <button
