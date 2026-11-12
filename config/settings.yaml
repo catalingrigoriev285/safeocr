@@ -25,12 +25,17 @@ redact:
 pii:
   enabled_types: [CNP, NAME, ADDRESS, ID_SERIES, ID_NUMBER, MRZ]
 
-# Future: local SLM used as an extra PII classifier (never a cloud model)
+# Local model (Ollama). Used by the chat agent; `enabled` additionally turns on the
+# (future) SLM PII classifier inside detect_pii. Never a cloud model.
 llm:
   enabled: false
   provider: ollama
-  model: qwen2.5:3b-instruct
+  model: qwen3:1.7b
   base_url: http://localhost:11434
+  think: false             # qwen3 reasoning mode (slower on CPU)
+  temperature: 0.3
+  timeout: 180
+  max_tool_rounds: 4       # model-initiated tool calls per chat turn
 
 # Future: local CPU text-to-speech for the end-of-task announcement
 tts:

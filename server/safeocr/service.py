@@ -119,6 +119,7 @@ class SafeOCRService:
             color=self.settings.redact.color,
         )
         counts = count_by_type(selected)
+        left_visible = count_by_type(d for d in all_dets if d not in selected)
         self.store.save_result_json(
             result_id,
             "meta.json",
@@ -137,6 +138,7 @@ class SafeOCRService:
             "detections_redacted": len(selected),
             "boxes_drawn": drawn,
             "redacted_counts": counts,
+            "left_visible_counts": left_visible,  # detected but deliberately not redacted
         }
 
     # --- 4. Verify ------------------------------------------------------------------

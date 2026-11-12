@@ -48,10 +48,14 @@ class PIISettings(BaseModel):
 
 
 class LLMSettings(BaseModel):
-    enabled: bool = False
+    enabled: bool = False  # extra PII classifier inside detect_pii (the chat agent always uses the model)
     provider: str = "ollama"
-    model: str = "qwen2.5:3b-instruct"
+    model: str = "qwen3:1.7b"
     base_url: str = "http://localhost:11434"
+    think: bool = False  # qwen3 reasoning mode; off = faster answers on CPU
+    temperature: float = 0.3
+    timeout: float = 180.0
+    max_tool_rounds: int = 4
 
 
 class TTSSettings(BaseModel):

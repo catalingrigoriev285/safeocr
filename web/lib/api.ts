@@ -8,7 +8,14 @@ export type Sample = {
   variation: { font: string; rotation_deg: number; noise_sigma: number; blur_radius: number } | null;
 };
 
-export type Health = { status: string; ocr_backend: string; llm_enabled: boolean; tts_enabled: boolean };
+export type Health = {
+  status: string;
+  ocr_backend: string;
+  llm_enabled: boolean;
+  tts_enabled: boolean;
+  chat_model?: string;
+  ollama?: { reachable: boolean; model_installed: boolean };
+};
 
 export type Step = {
   tool: string;
@@ -34,7 +41,7 @@ export type RunResult = {
   recall: Recall | null;
 };
 
-export type Source = { source: "sample" | "upload"; name: string };
+export type Source = { source: "sample" | "upload"; name: string; matched_sample?: string | null };
 
 export class ApiError extends Error {
   constructor(message: string, public steps: Step[] = []) {

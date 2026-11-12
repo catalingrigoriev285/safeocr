@@ -1,5 +1,5 @@
-import Anonymizer from "./components/Anonymizer";
+import ChatClient from "./components/ChatClient";
 
 export default function Home() {
-  return <Anonymizer />;
+  return <ChatClient />;
 }

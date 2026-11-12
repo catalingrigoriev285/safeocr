@@ -31,11 +31,12 @@ server/safeocr/
   redact.py, evaluation.py (recall), storage.py, config.py
   llm/                    local SLM hook (placeholder)
   tts/                    local TTS hook (placeholder) + Romanian announcement text
-  api/main.py             FastAPI
+  agent/                  chat agent: Ollama client + MCP tools (chat.py, ollama.py)
+  api/main.py             FastAPI (+ /api/chat streaming)
 scripts/generate_samples.py   12 fictive documents (rotation, noise, blur, 5 fonts) + *.gt.json
 scripts/evaluate_recall.py    recall report (covered / existing)
 tests/                    pytest
-web/                      Next.js 16 demo (App Router, Tailwind 4)
+web/                      Next.js 16: / = chat, /pipeline = step-by-step page
 ```
 
 ## Setup
@@ -61,7 +62,27 @@ uvicorn safeocr.api.main:app --reload --app-dir server
 cd web && cp .env.example .env.local && npm install && npm run dev
 ```
 
-Open http://localhost:3000, pick a sample and click **Run anonymization**.
+- http://localhost:3000: **Chat** (ChatGPT-style). Attach a card with the paperclip, drag & drop or paste, and ask questions.
+- http://localhost:3000/pipeline: the original step-by-step page.
+
+### Chat (local model via Ollama)
+
+```bash
+ollama pull qwen3:1.7b      # model set in config/settings.yaml -> llm.model
+ollama serve                # if not already running
+```
+
+`POST /api/chat` streams NDJSON events (`tool_call`, `tool_result`, `recall`, `token`, `done`).
+How it works ([server/safeocr/agent/chat.py](server/safeocr/agent/chat.py)):
+
+- **Attached image:** the backend runs the 5 MCP tools deterministically. The calls show up in the chat and
+  only their *reports* go into the model's context. The model then summarizes them.
+- **Follow-ups** ("now cover only the CNP"): the model calls the MCP tools itself. A small model sometimes invents
+  ids, so the backend replaces them with the real ones from the conversation. A type name (`"CNP"`) is mapped to
+  the detection ids of that type.
+- The language of the answer follows the user's message (Romanian/English).
+- With OCR `stub`, an upload works only if it is byte-identical to a generated sample (e.g. dragged from
+  `data/samples/`). Real photos need Tesseract.
 
 ### Standalone MCP server
 
@@ -114,6 +135,6 @@ The rules (`pii/rules.py`) were tuned on the generated layout. With Tesseract, r
 
 ## Next steps
 
-- `llm/`: a local SLM (Ollama, e.g. `qwen2.5:3b-instruct`) as an extra PII classifier, set in `llm:` in the config.
+- `llm/`: a local SLM (Ollama, `qwen3:1.7b`) as an extra PII classifier, set in `llm:` in the config.
 - `tts/`: a CPU-only local voice (Piper `ro_RO-mihai-medium`, fallback `en_US-lessac-medium`).
 - Real OCR (Tesseract) + recall evaluation on all 12 documents.
