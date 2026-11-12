@@ -9,6 +9,9 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 
+# Chat: answer-language detection (pure Python)
+langdetect>=1.0.9
+
 # Config
 pydantic>=2.7
 pydantic-settings>=2.3
@@ -18,6 +21,9 @@ pyyaml>=6.0
 pillow>=10.4
 numpy>=1.26
 pytesseract>=0.3.13   # needs the tesseract binary: brew install tesseract tesseract-lang
+
+# Optional voice engines (see README "Voice (TTS)"):
+# piper-tts>=1.3        # offline neural TTS, e.g. ro_RO-mihai-medium
 
 # Dev / tests
 pytest>=8.0

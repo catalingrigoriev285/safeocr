@@ -75,10 +75,11 @@ def verify_redaction(result_id: str) -> dict:
     return _guard(service().verify_redaction, result_id)
 
 
-@mcp.tool(annotations={"readOnlyHint": True, "openWorldHint": False})
-def announce(result_id: str) -> dict:
-    """Compose (and, once a local TTS is configured, speak) the end-of-task announcement in Romanian."""
-    return _guard(service().announce, result_id)
+@mcp.tool(annotations={"readOnlyHint": False, "openWorldHint": False})
+def announce(result_id: str, language: Optional[str] = None) -> dict:
+    """Compose the end-of-task announcement ("ro" or "en"; default from config) and, when a TTS
+    engine is enabled, synthesize it to audio. The text contains only counts, never personal values."""
+    return _guard(service().announce, result_id, language)
 
 
 def main() -> None:

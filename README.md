@@ -20,7 +20,7 @@ web/ (Next.js) ──HTTP──▶ FastAPI (server/safeocr/api) ──MCP client
 
 ```
 fastmcp.json              MCP server config (FastMCP)
-config/settings.yaml      app config (OCR backend, paths, PII types, future LLM/TTS)
+config/settings.yaml      app config (OCR backend, paths, PII types, chat model, voice/TTS)
 requirements.txt          Python dependencies (+ `-e .` for the safeocr package)
 server/mcp_app.py         entrypoint for `fastmcp run fastmcp.json`
 server/safeocr/
@@ -29,10 +29,10 @@ server/safeocr/
   ocr/                    stub (ground truth + pixel check) | tesseract
   pii/                    cnp.py (regex + control digit), rules.py, detector.py
   redact.py, evaluation.py (recall), storage.py, config.py
-  llm/                    local SLM hook (placeholder)
-  tts/                    local TTS hook (placeholder) + Romanian announcement text
-  agent/                  chat agent: Ollama client + MCP tools (chat.py, ollama.py)
-  api/main.py             FastAPI (+ /api/chat streaming)
+  llm/                    local SLM PII-classifier hook (placeholder)
+  tts/                    announcement text (ro/en) + voice engines: macos | piper | openai-compatible
+  agent/                  chat agent: Ollama client, MCP tools, answer-language detection
+  api/main.py             FastAPI (/api/chat streaming, /api/audio)
 scripts/generate_samples.py   12 fictive documents (rotation, noise, blur, 5 fonts) + *.gt.json
 scripts/evaluate_recall.py    recall report (covered / existing)
 tests/                    pytest
@@ -42,8 +42,9 @@ web/                      Next.js 16: / = chat, /pipeline = step-by-step page
 ## Setup
 
 ```bash
-# Python >= 3.10 (3.12 recommended)
-python3.12 -m venv .venv
+# Python 3.10–3.14 (3.13 recommended). 3.15 runs the core app, but Piper TTS can't be installed
+# there yet (onnxruntime has no 3.15 wheels).
+python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
@@ -62,15 +63,42 @@ uvicorn safeocr.api.main:app --reload --app-dir server
 cd web && cp .env.example .env.local && npm install && npm run dev
 ```
 
-- http://localhost:3000: **Chat** (ChatGPT-style). Attach a card with the paperclip, drag & drop or paste, and ask questions.
-- http://localhost:3000/pipeline: the original step-by-step page.
+- http://localhost:3000: **Chat** (ChatGPT-style, English UI, chat in any language). Attach a card with the
+  paperclip, drag & drop or paste, and ask questions. The left sidebar lists recent chats, saved only in the
+  browser (`localStorage`, key `safeocr.chats.v1`, max 50). They contain your messages and tool reports, never
+  document text. ⌘/Ctrl+Shift+O = new chat.
+- **Settings** (sidebar → Settings): "Read results aloud", export chats as JSON, **delete all chats**, system info.
+- http://localhost:3000/pipeline: the original step-by-step page (linked from the bottom of the sidebar).
 
-### Chat (local model via Ollama)
+## Local model (Ollama + Qwen3)
 
-```bash
-ollama pull qwen3:1.7b      # model set in config/settings.yaml -> llm.model
-ollama serve                # if not already running
-```
+The chat needs a local model served by [Ollama](https://ollama.com). Nothing goes to the cloud.
+
+1. **Install Ollama**
+   - macOS: download the app from https://ollama.com/download (or `brew install ollama`)
+   - Linux: `curl -fsSL https://ollama.com/install.sh | sh`
+   - Windows: installer from https://ollama.com/download
+2. **Start it** (the macOS/Windows app does this automatically):
+   ```bash
+   ollama serve                # listens on http://localhost:11434
+   ```
+3. **Pull Qwen3**:
+   ```bash
+   ollama pull qwen3:1.7b      # ~1.4 GB, runs on CPU
+   ollama run qwen3:1.7b "Salut!"   # quick test, Ctrl+D to quit
+   ```
+   Bigger models follow instructions and languages better: `qwen3:4b` (~2.5 GB), `qwen3:8b` (~5 GB).
+4. **Connect it** in `config/settings.yaml` (or with env vars such as `SAFEOCR_LLM__MODEL=qwen3:4b`):
+   ```yaml
+   llm:
+     model: qwen3:1.7b
+     base_url: http://localhost:11434   # another machine: http://<host>:11434 (start it with OLLAMA_HOST=0.0.0.0)
+     think: false                       # qwen3 "thinking" mode: better reasoning, much slower on CPU
+   ```
+5. **Check**: restart uvicorn and open `http://localhost:8000/api/health`. It should show
+   `"ollama": {"reachable": true, "model_installed": true}`. The dot at the bottom of the sidebar turns green.
+
+### How the chat works
 
 `POST /api/chat` streams NDJSON events (`tool_call`, `tool_result`, `recall`, `token`, `done`).
 How it works ([server/safeocr/agent/chat.py](server/safeocr/agent/chat.py)):
@@ -80,7 +108,14 @@ How it works ([server/safeocr/agent/chat.py](server/safeocr/agent/chat.py)):
 - **Follow-ups** ("now cover only the CNP"): the model calls the MCP tools itself. A small model sometimes invents
   ids, so the backend replaces them with the real ones from the conversation. A type name (`"CNP"`) is mapped to
   the detection ids of that type.
-- The language of the answer follows the user's message (Romanian/English).
+- **Any language:** the answer follows the language of the user's message, detected with `langdetect` plus
+  Romanian/English keyword checks ([agent/language.py](server/safeocr/agent/language.py)). Very short messages
+  ("ok", "merci") reuse the language of the previous message. Romanian has hand-written rules; other languages
+  get the English rules plus "reply in <language>". A 1.7b model is weaker in less common languages; use a bigger
+  Qwen3 if that matters.
+- The model talks to the user in the 2nd person ("your privacy" / "confidențialitatea ta"). The privacy facts are
+  added to the prompt only when the question is about privacy.
+- If no image was attached, the model asks for one instead of pretending.
 - With OCR `stub`, an upload works only if it is byte-identical to a generated sample (e.g. dragged from
   `data/samples/`). Real photos need Tesseract.
 
@@ -113,7 +148,7 @@ For an external MCP client (e.g. Claude Desktop/Code), the config looks like thi
 | `detect_pii(document_id)` | `detection_set_id`, counts per type, `[{id, type, bbox}]` |
 | `redact_image(document_id, detection_ids?)` | `result_id`, boxes drawn per type |
 | `verify_redaction(result_id)` | `passed`, `remaining_counts` |
-| `announce(result_id)` | announcement text in Romanian (TTS later) |
+| `announce(result_id, language?)` | announcement text (`ro`/`en`, counts only) + WAV audio when a voice engine is enabled |
 
 `ocr_document` only accepts images from `paths.allowed_input_dirs` (default `data/samples`, `data/uploads`).
 
@@ -133,8 +168,120 @@ export SAFEOCR_OCR__BACKEND=tesseract   # or ocr.backend: tesseract in config/se
 The rules (`pii/rules.py`) were tuned on the generated layout. With Tesseract, run
 `scripts/evaluate_recall.py` again and adjust them.
 
+## Voice (TTS)
+
+At the end of each task, the `announce` tool composes a short summary, such as "Anonymizare finalizată. Am acoperit 8 date
+personale…". When a voice engine is enabled, it also writes `data/store/results/<result_id>/announcement.wav`, served at
+`GET /api/audio/<result_id>`. The chat then shows **Play spoken summary**. Turn on *Settings → Read results aloud*
+to auto-play it.
+
+The spoken text contains **only counts and the verification result, never personal values**. That's why even a remote
+TTS provider would not see any personal data.
+
+| Engine | Runs | Romanian voice | Setup |
+|---|---|---|---|
+| `macos` | macOS built-in `say`, offline, CPU | ✅ `Ioana` | nothing to install |
+| `piper` | Piper neural TTS, offline, CPU, any OS | ✅ `ro_RO-mihai-medium` | `pip install piper-tts` + voice file |
+| `openai` | any OpenAI-compatible `/v1/audio/speech` server | depends on the server | see below |
+
+Enable a voice in `config/settings.yaml`, then restart uvicorn:
+
+```yaml
+tts:
+  enabled: true
+  engine: macos        # macos | piper | openai
+  language: ro         # language of the spoken text, must match the voice: ro | en
+```
+
+`GET /api/health` shows the active engine under `"tts"`.
+
+### Option A: macOS built-in voice (quickest)
+
+```bash
+say -v '?' | grep ro_RO          # -> Ioana  ro_RO
+say -v Ioana "Bună ziua!"         # test
+```
+```yaml
+tts: { enabled: true, engine: macos, language: ro, macos: { voice: Ioana } }
+```
+For English, use `language: en` with an English voice such as `Samantha`.
+
+### Option B: Piper (offline, CPU, Linux/Windows/macOS)
+
+> **Requires Python ≤ 3.14.** Piper depends on `onnxruntime`, which has no Python 3.15 wheels yet. On 3.15,
+> `pip install piper-tts` fails with `ResolutionImpossible ... no matching distributions available for your
+> environment: onnxruntime`. Recreate the venv with 3.13 (`brew install python@3.13`, then
+> `python3.13 -m venv .venv`), or use Option A on macOS.
+
+```bash
+pip install piper-tts                     # in the project venv (Python 3.11–3.14)
+mkdir -p models/piper
+python -m piper.download_voices ro_RO-mihai-medium --data-dir models/piper
+# English alternative: en_US-lessac-medium
+```
+```yaml
+tts:
+  enabled: true
+  engine: piper
+  language: ro
+  piper: { model: models/piper/ro_RO-mihai-medium.onnx }
+```
+Voice list: https://huggingface.co/rhasspy/piper-voices (Romanian: `ro_RO-mihai-medium`).
+
+### Option C: Ollama speech models (Phonon)
+
+Ollama 0.40.11+ serves text-to-speech through an OpenAI-compatible `POST /v1/audio/speech` endpoint. For now this
+works on Apple Silicon Macs only. **There is no Romanian Phonon model**, so use `language: en` (or `fr/de/es/pt` with
+the matching model; the announcement text itself is only `ro`/`en`).
+
+```bash
+ollama pull phonon                # English. Other languages: phonon:40m-fr, phonon:40m-de, phonon:40m-es, phonon:40m-pt
+ollama show phonon                # lists the available voices
+ollama run phonon "Hello from SafeOCR."   # test
+```
+```yaml
+tts:
+  enabled: true
+  engine: openai
+  language: en
+  openai:
+    base_url: http://localhost:11434/v1
+    model: phonon
+    voice: ""            # empty = default voice, or a name from `ollama show phonon`
+```
+Licensing: the English Phonon model is Apache 2.0; the French/German/Spanish/Portuguese ones are non-commercial.
+Check the model page.
+
+### Option D: other OpenAI-compatible servers
+
+The same `openai` engine works with any server that implements `/v1/audio/speech` and returns WAV:
+
+- **Kokoro-FastAPI** (local, CPU or GPU; English and a few other languages, no Romanian):
+  ```bash
+  docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest
+  ```
+  ```yaml
+  openai: { base_url: http://localhost:8880/v1, model: kokoro, voice: af_bella }
+  ```
+- **LocalAI / openedai-speech**: point `base_url` at the server's `/v1`, and set its model and voice names.
+- **OpenAI (cloud)**: `base_url: https://api.openai.com/v1`, `model: gpt-4o-mini-tts`, `voice: alloy`,
+  `api_key_env: OPENAI_API_KEY` (then `export OPENAI_API_KEY=...`). This is a remote service. Only the
+  counts-only announcement is sent, but it does leave the machine.
+
+### Test the voice without the UI
+
+```bash
+python - <<'PY'
+import sys; sys.path.insert(0, "server")
+from safeocr.service import SafeOCRService
+s = SafeOCRService()
+doc = s.ocr_document("doc_00.png")["document_id"]; s.detect_pii(doc)
+res = s.redact_image(doc)["result_id"]; s.verify_redaction(res)
+print(s.announce(res))            # "audio": true -> data/store/results/<id>/announcement.wav
+PY
+```
+
 ## Next steps
 
 - `llm/`: a local SLM (Ollama, `qwen3:1.7b`) as an extra PII classifier, set in `llm:` in the config.
-- `tts/`: a CPU-only local voice (Piper `ro_RO-mihai-medium`, fallback `en_US-lessac-medium`).
 - Real OCR (Tesseract) + recall evaluation on all 12 documents.

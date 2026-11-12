@@ -58,12 +58,30 @@ class LLMSettings(BaseModel):
     max_tool_rounds: int = 4
 
 
+class MacTTSSettings(BaseModel):
+    voice: str = "Ioana"  # `say -v '?'` lists voices; Ioana = ro_RO
+    rate: Optional[int] = None  # words per minute
+
+
+class PiperTTSSettings(BaseModel):
+    model: Path = Path("models/piper/ro_RO-mihai-medium.onnx")
+
+
+class OpenAITTSSettings(BaseModel):
+    base_url: str = "http://localhost:11434/v1"  # Ollama; or Kokoro-FastAPI http://localhost:8880/v1, OpenAI ...
+    model: str = "phonon"
+    voice: str = ""  # empty = server default
+    api_key_env: str = ""  # name of an env var holding the API key (only for remote providers)
+    timeout: float = 60.0
+
+
 class TTSSettings(BaseModel):
     enabled: bool = False
-    engine: str = "piper"
-    voice: str = "ro_RO-mihai-medium"
-    fallback_voice: str = "en_US-lessac-medium"
-    language: str = "ro"
+    engine: Literal["none", "macos", "piper", "openai"] = "macos"
+    language: Literal["ro", "en"] = "ro"  # language of the spoken announcement (must match the voice)
+    macos: MacTTSSettings = Field(default_factory=MacTTSSettings)
+    piper: PiperTTSSettings = Field(default_factory=PiperTTSSettings)
+    openai: OpenAITTSSettings = Field(default_factory=OpenAITTSSettings)
 
 
 class APISettings(BaseModel):

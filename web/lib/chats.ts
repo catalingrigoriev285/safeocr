@@ -97,7 +97,7 @@ export function saveChats(chats: ChatSession[]): void {
 export function titleFrom(text: string, attachmentLabel?: string): string {
   const clean = text.replace(/\s+/g, " ").trim();
   if (clean) return clean.length > 48 ? `${clean.slice(0, 47)}…` : clean;
-  return attachmentLabel ? `Imagine: ${attachmentLabel}` : "Conversație nouă";
+  return attachmentLabel ? `Image: ${attachmentLabel}` : "New chat";
 }
 
 export function groupByDate(chats: ChatSession[]): { label: string; items: ChatSession[] }[] {
@@ -117,4 +117,24 @@ export function groupByDate(chats: ChatSession[]): { label: string; items: ChatS
     groups.set(label, [...(groups.get(label) ?? []), c]);
   }
   return [...groups.entries()].map(([label, items]) => ({ label, items }));
+}
+
+/** Approximate bytes used by stored chats (UTF-16 → 2 bytes per char). */
+export function storageBytes(): number {
+  try {
+    return (window.localStorage.getItem(KEY)?.length ?? 0) * 2;
+  } catch {
+    return 0;
+  }
+}
+
+export function exportChats(chats: ChatSession[]): void {
+  const blob = new Blob([JSON.stringify(chats.map(forStorage), null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement("a"), {
+    href: url,
+    download: `safeocr-chats-${new Date().toISOString().slice(0, 10)}.json`,
+  });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

@@ -9,7 +9,7 @@ const TOOLS = [
   { tool: "detect_pii", label: "Detect PII", hint: "CNP regex + checksum, rules" },
   { tool: "redact_image", label: "Redact", hint: "black boxes over detections" },
   { tool: "verify_redaction", label: "Verify", hint: "re-OCR the output" },
-  { tool: "announce", label: "Announce", hint: "local TTS (coming soon)" },
+  { tool: "announce", label: "Announce", hint: "spoken summary (local TTS)" },
 ];
 
 const TYPE_LABEL: Record<string, string> = {
@@ -315,8 +315,13 @@ export default function Anonymizer() {
               <div className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
                 <h2 className="mb-3 text-sm font-semibold">Voice announcement</h2>
                 <p className="text-sm leading-relaxed">{result.announcement.text}</p>
+                {result.announcement.audio && (
+                  <audio controls src={api.audioUrl(result.result_id)} className="mt-3 w-full" />
+                )}
                 <p className="mt-3 text-xs text-zinc-500">
-                  {result.announcement.spoken ? "Spoken by the local TTS." : "Text only. A local CPU TTS (Piper, Romanian voice) will be added later."}
+                  {result.announcement.audio
+                    ? `Voice: ${result.announcement.engine}${result.announcement.voice ? ` · ${result.announcement.voice}` : ""}`
+                    : result.announcement.tts_error ?? "Text only. Enable a TTS engine in config/settings.yaml (see README)."}
                 </p>
               </div>
             </section>

@@ -90,7 +90,25 @@ async def health() -> Dict:
         "tts_enabled": settings.tts.enabled,
         "chat_model": settings.llm.model,
         "ollama": await OllamaClient(settings.llm).available(),
+        "tts": {
+            "enabled": settings.tts.enabled,
+            "engine": service().tts.name,
+            "voice": service().tts.voice,
+            "language": settings.tts.language,
+        },
     }
+
+
+@app.get("/api/audio/{result_id}")
+def audio(result_id: str) -> FileResponse:
+    """Spoken announcement for a result (exists only when TTS is enabled)."""
+    try:
+        p = service().store.announcement_path(result_id)
+    except NotFoundError as exc:
+        raise HTTPException(404, "result not found") from exc
+    if not p.exists():
+        raise HTTPException(404, "no audio for this result")
+    return FileResponse(p, media_type="audio/wav")
 
 
 @app.post("/api/chat")

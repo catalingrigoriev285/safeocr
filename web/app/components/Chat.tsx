@@ -14,6 +14,8 @@ import {
   type Message,
   type ToolRun,
 } from "@/lib/chats";
+import { loadPrefs, savePrefs, type Prefs } from "@/lib/prefs";
+import SettingsDialog from "./SettingsDialog";
 import Sidebar, { SidebarIcon } from "./Sidebar";
 
 const DESKTOP = "(min-width: 768px)";
@@ -28,8 +30,8 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 const SUGGESTIONS = [
-  "Ce date personale poți detecta?",
-  "Cum îmi protejezi confidențialitatea?",
+  "What personal data can you detect?",
+  "How do you protect my privacy?",
   "What happens to the original image?",
 ];
 
@@ -215,7 +217,44 @@ function Typing() {
   );
 }
 
+function PlayButton({ resultId }: { resultId: string }) {
+  const [playing, setPlaying] = useState(false);
+  const audio = useRef<HTMLAudioElement>(null);
+  const toggle = () => {
+    const el = audio.current;
+    if (!el) return;
+    if (playing) {
+      el.pause();
+      setPlaying(false);
+    } else {
+      el.play()
+        .then(() => setPlaying(true))
+        .catch(() => setPlaying(false));
+    }
+  };
+  return (
+    <button
+      onClick={toggle}
+      className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+    >
+      {playing ? (
+        <svg viewBox="0 0 24 24" className="size-3.5" fill="currentColor">
+          <rect x="6" y="6" width="12" height="12" rx="2" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M11 5 6 9H2v6h4l5 4V5Z" />
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14" />
+        </svg>
+      )}
+      {playing ? "Pause" : "Play spoken summary"}
+      <audio ref={audio} src={api.audioUrl(resultId)} preload="none" onEnded={() => setPlaying(false)} hidden />
+    </button>
+  );
+}
+
 function AssistantMessage({ m }: { m: Message }) {
+  const spoken = m.tools.find((t) => t.name === "announce" && t.ok && t.report?.audio);
   const showTyping = m.streaming && !m.text && (m.tools.length === 0 || m.tools.every((t) => t.ok !== undefined));
   return (
     <div className="flex gap-4">
@@ -237,6 +276,7 @@ function AssistantMessage({ m }: { m: Message }) {
             </figcaption>
           </figure>
         ))}
+        {spoken && <PlayButton resultId={String(spoken.report?.result_id)} />}
         {m.recall && (
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
             <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
@@ -285,6 +325,8 @@ export default function Chat() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia(DESKTOP).matches);
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<Attachment | null>(null);
+  const [prefs, setPrefs] = useState<Prefs>(() => loadPrefs());
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -344,6 +386,17 @@ export default function Chat() {
       setNotice(null);
     }
     if (isMobile()) setSidebarOpen(false);
+  };
+
+  const deleteAllChats = () => {
+    stop();
+    setChats([]);
+    setActiveId(null);
+  };
+
+  const changePrefs = (p: Prefs) => {
+    setPrefs(p);
+    savePrefs(p);
   };
 
   const deleteChat = (id: string) => {
@@ -446,6 +499,9 @@ export default function Chat() {
                 ? [...m.resultIds, ev.report.result_id]
                 : m.resultIds,
           }));
+          if (ev.ok && ev.name === "announce" && ev.report?.audio && prefs.autoplayVoice && health?.tts?.enabled) {
+            new Audio(api.audioUrl(String(ev.report.result_id))).play().catch(() => {});
+          }
           break;
         case "recall": {
           const { covered, total, recall, per_type } = ev;
@@ -524,6 +580,16 @@ export default function Chat() {
         onSelect={selectChat}
         onNew={newChat}
         onDelete={deleteChat}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        chats={chats}
+        health={health}
+        prefs={prefs}
+        onPrefsChange={changePrefs}
+        onDeleteAll={deleteAllChats}
       />
 
       <main className="relative flex min-w-0 flex-1 flex-col" {...dropHandlers}>
@@ -558,10 +624,10 @@ export default function Chat() {
         <div className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center px-4 pb-10 text-center">
-              <h1 className="text-3xl font-semibold tracking-tight">Ce document anonimizăm azi?</h1>
+              <h1 className="text-3xl font-semibold tracking-tight">What should we anonymize today?</h1>
               <p className="mt-2 max-w-md text-sm text-zinc-500">
-                Attach a (fictive) ID card photo or ask a question. OCR, detection and redaction run locally. The model
-                never sees the document text.
+                Attach a (fictive) ID card photo or ask a question, in any language. OCR, detection and redaction run
+                locally. The model never sees the document text.
               </p>
               {samples.length > 0 && (
                 <div className="mt-8 w-full">

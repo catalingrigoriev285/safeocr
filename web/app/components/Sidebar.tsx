@@ -22,6 +22,12 @@ export const SidebarIcon = {
       <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
     </svg>
   ),
+  gear: (
+    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+    </svg>
+  ),
   layers: (
     <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
       <path d="m12 3 9 5-9 5-9-5 9-5Z" />
@@ -40,9 +46,10 @@ type Props = {
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  onOpenSettings: () => void;
 };
 
-export default function Sidebar({ chats, activeId, streamingId, health, open, onClose, onSelect, onNew, onDelete }: Props) {
+export default function Sidebar({ chats, activeId, streamingId, health, open, onClose, onSelect, onNew, onDelete, onOpenSettings }: Props) {
   const groups = groupByDate(chats);
   const modelReady = health?.ollama?.reachable && health.ollama.model_installed;
 
@@ -137,6 +144,13 @@ export default function Sidebar({ chats, activeId, streamingId, health, open, on
         </nav>
 
         <div className="space-y-1 border-t border-zinc-200 p-3 text-xs dark:border-zinc-800">
+          <button
+            onClick={onOpenSettings}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-zinc-600 transition hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            {SidebarIcon.gear}
+            Settings
+          </button>
           <Link
             href="/pipeline"
             className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-zinc-600 transition hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-800"

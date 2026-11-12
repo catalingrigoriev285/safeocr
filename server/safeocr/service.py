@@ -16,7 +16,7 @@ from .ocr import OCRError, OCRResult, get_ocr_backend
 from .pii import Detection, count_by_type, detect
 from .redact import redact
 from .storage import NotFoundError, Store, new_id, now_iso
-from .tts import compose_announcement, get_tts
+from .tts import TTSError, compose_announcement, get_tts
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 
@@ -161,7 +161,7 @@ class SafeOCRService:
         return report
 
     # --- extras -----------------------------------------------------------------------
-    def announce(self, result_id: str) -> Dict:
+    def announce(self, result_id: str, language: Optional[str] = None) -> Dict:
         try:
             meta = self.store.load_result_json(result_id, "meta.json")
         except NotFoundError as exc:
@@ -170,8 +170,17 @@ class SafeOCRService:
             passed = self.store.load_result_json(result_id, "verification.json")["passed"]
         except NotFoundError:
             passed = None
-        text = compose_announcement(meta["redacted_counts"], passed)
-        return {"result_id": result_id, "text": text, **self.tts.speak(text)}
+        lang = language if language in ("ro", "en") else self.settings.tts.language
+        text = compose_announcement(meta["redacted_counts"], passed, lang)
+        report = {"result_id": result_id, "text": text, "language": lang, "engine": self.tts.name,
+                  "voice": self.tts.voice, "audio": False}
+        if self.settings.tts.enabled:
+            try:
+                self.tts.synthesize(text, self.store.announcement_path(result_id))
+                report["audio"] = True
+            except TTSError as exc:  # a missing voice must not break the pipeline
+                report["tts_error"] = str(exc)
+        return report
 
     def recall(self, result_id: str) -> Optional[Dict]:
         """Coverage recall vs ground truth (only for generated samples)."""

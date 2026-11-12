@@ -18,6 +18,9 @@ data/uploads/*
 data/store/*
 !data/**/.gitkeep
 
+# Downloaded voice models (e.g. Piper .onnx, ~60 MB)
+models/
+
 # Node / Next.js
 node_modules/
 web/.next/

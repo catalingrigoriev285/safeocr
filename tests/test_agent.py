@@ -3,7 +3,8 @@
 import asyncio
 import json
 
-from safeocr.agent.chat import IdTracker, ThinkFilter, _language_hint
+from safeocr.agent.chat import IdTracker, ThinkFilter
+from safeocr.agent.language import detect_language, language_rule
 
 
 def test_id_repair_replaces_hallucinated_ids_and_maps_types():
@@ -25,9 +26,16 @@ def test_think_filter_strips_reasoning_across_chunks():
     assert out == "Bună! Gata. <b"
 
 
-def test_language_hint():
-    assert "română" in _language_hint("Acum acoperă doar CNP-ul")
-    assert "English" in _language_hint("What can you detect?")
+def test_language_detection_is_international():
+    assert detect_language("Acum acoperă doar CNP-ul") == "ro"
+    assert detect_language("Ce date poti detecta?") == "ro"  # no diacritics
+    assert detect_language("What personal data can you detect?") == "en"  # langdetect alone says Catalan
+    assert detect_language("Comment protégez-vous ma vie privée ?") == "fr"
+    assert detect_language("Welche personenbezogenen Daten kannst du erkennen?") == "de"
+    # too short to tell -> previous user message, then English
+    assert detect_language("merci", ["[Attached image: doc_01.png]\nAnonymise ce document, s'il te plaît."]) == "fr"
+    assert detect_language("ok") == "en"
+    assert "română" in language_rule("ro") and "German" in language_rule("de")
 
 
 class FakeOllama:
@@ -94,3 +102,62 @@ def test_chat_endpoint_streams_ndjson(env, monkeypatch):
         events = [json.loads(line) for line in r.iter_lines() if line]
     assert events[0]["type"] == "tool_call" and events[-1]["type"] == "done"
     assert client.post("/api/chat", json={"message": "  "}).status_code == 400
+
+
+def test_announcement_languages():
+    from safeocr.tts import compose_announcement
+
+    counts = {"CNP": 1, "NAME": 2, "ADDRESS": 1}
+    assert compose_announcement(counts, True, "ro").startswith("Anonimizare finalizată. Am acoperit 4 date personale")
+    en = compose_announcement(counts, False, "en")
+    assert "I covered 4 personal data items: 1 address, 1 CNP, 2 names." in en and en.endswith("still visible.")
+    assert "20 de nume" in compose_announcement({"NAME": 20}, None, "ro")
+
+
+def test_openai_compatible_tts_engine(tmp_path):
+    import httpx
+
+    from safeocr.config import OpenAITTSSettings
+    from safeocr.tts.engines import OpenAISpeechTTS
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b"RIFF....WAVEfake")
+
+    engine = OpenAISpeechTTS(OpenAITTSSettings(model="phonon", voice="Zoey"), transport=httpx.MockTransport(handler))
+    out = tmp_path / "a.wav"
+    engine.synthesize("Gata.", out)
+    assert seen["url"] == "http://localhost:11434/v1/audio/speech"
+    assert seen["body"] == {"model": "phonon", "input": "Gata.", "response_format": "wav", "voice": "Zoey"}
+    assert out.read_bytes().startswith(b"RIFF")
+
+
+def test_announce_with_tts_and_audio_endpoint(env, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from safeocr.api import main
+    from safeocr.mcp_server import service
+
+    class FakeTTS:
+        name, voice = "fake", "test-voice"
+
+        def synthesize(self, text, out_path):
+            out_path.write_bytes(b"RIFF" + text.encode())
+
+    svc = service()
+    monkeypatch.setattr(svc.settings.tts, "enabled", True)
+    monkeypatch.setattr(svc, "tts", FakeTTS())
+    doc = svc.ocr_document(str(env["samples"] / "doc_00.png"))["document_id"]
+    svc.detect_pii(doc)
+    res = svc.redact_image(doc)["result_id"]
+    svc.verify_redaction(res)
+    report = svc.announce(res, "en")
+    assert report["audio"] is True and report["engine"] == "fake" and report["language"] == "en"
+
+    client = TestClient(main.app)
+    audio = client.get(f"/api/audio/{res}")
+    assert audio.status_code == 200 and audio.headers["content-type"] == "audio/wav"
+    assert client.get("/api/audio/res_000000000000").status_code == 404

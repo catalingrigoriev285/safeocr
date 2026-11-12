@@ -12,6 +12,7 @@ Layout:
     <store>/results/<result_id>/redacted.png
                                 meta.json
                                 verification.json
+                                announcement.wav    (when TTS is enabled)
 """
 
 from __future__ import annotations
@@ -124,6 +125,9 @@ class Store:
 
     def redacted_path(self, result_id: str) -> Path:
         return self.result_dir(result_id) / "redacted.png"
+
+    def announcement_path(self, result_id: str) -> Path:
+        return self.result_dir(result_id) / "announcement.wav"
 
     def save_result_json(self, result_id: str, name: str, data: Any) -> None:
         self.write_json(self.result_dir(result_id) / name, data)

@@ -28,7 +28,7 @@ pii:
 # Local model (Ollama). Used by the chat agent; `enabled` additionally turns on the
 # (future) SLM PII classifier inside detect_pii. Never a cloud model.
 llm:
-  enabled: false
+  enabled: true
   provider: ollama
   model: qwen3:1.7b
   base_url: http://localhost:11434
@@ -37,13 +37,22 @@ llm:
   timeout: 180
   max_tool_rounds: 4       # model-initiated tool calls per chat turn
 
-# Future: local CPU text-to-speech for the end-of-task announcement
+# End-of-task voice announcement (see README "Voice (TTS)"). The spoken text contains only
+# counts and the verification result, never personal values.
 tts:
-  enabled: false
-  engine: piper
-  voice: ro_RO-mihai-medium
-  fallback_voice: en_US-lessac-medium
-  language: ro
+  enabled: true
+  engine: piper            # none | macos | piper | openai
+  language: ro             # language of the spoken text: ro | en (must match the voice)
+  macos:                   # built-in `say` (macOS only, offline)
+    voice: Ioana           # ro_RO voice; `say -v '?'` lists all
+    rate: null
+  piper:                   # pip install piper-tts (offline, CPU)
+    model: models/piper/ro_RO-mihai-medium.onnx
+  openai:                  # any OpenAI-compatible /v1/audio/speech server
+    base_url: http://localhost:11434/v1   # Ollama >= 0.40.11 (Apple Silicon); Kokoro: http://localhost:8880/v1
+    model: phonon          # Ollama: phonon (en), phonon:40m-fr|de|es|pt; Kokoro: kokoro
+    voice: ""              # empty = server default
+    api_key_env: ""        # env var with an API key (remote providers only)
 
 api:
   cors_origins:

@@ -8,6 +8,16 @@ export type Sample = {
   variation: { font: string; rotation_deg: number; noise_sigma: number; blur_radius: number } | null;
 };
 
+export type Announcement = {
+  result_id: string;
+  text: string;
+  language: string;
+  engine: string;
+  voice: string | null;
+  audio: boolean;
+  tts_error?: string;
+};
+
 export type Health = {
   status: string;
   ocr_backend: string;
@@ -15,6 +25,7 @@ export type Health = {
   tts_enabled: boolean;
   chat_model?: string;
   ollama?: { reachable: boolean; model_installed: boolean };
+  tts?: { enabled: boolean; engine: string; voice: string | null; language: string };
 };
 
 export type Step = {
@@ -37,7 +48,7 @@ export type RunResult = {
   result_id: string;
   passed: boolean;
   steps: Step[];
-  announcement: { text: string; spoken: boolean };
+  announcement: Announcement;
   recall: Recall | null;
 };
 
@@ -79,6 +90,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(src),
     }),
+  audioUrl: (resultId: string) => `${API_URL}/api/audio/${encodeURIComponent(resultId)}`,
   imageUrl: (kind: "sample" | "upload" | "result", name: string) =>
     `${API_URL}/api/images/${kind}/${encodeURIComponent(name)}`,
 };

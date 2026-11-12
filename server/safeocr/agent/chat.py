@@ -23,6 +23,16 @@ from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 
 from ..config import PII_TYPES, Settings
+from ..tts import compose_announcement
+from .language import (
+    ANONYMIZE_INTENT,
+    PRIVACY_TOPIC,
+    detect_language,
+    language_rule,
+    no_image_state,
+    privacy_facts,
+    summary_language,
+)
 from .ollama import OllamaClient, OllamaError
 
 SYSTEM_PROMPT = """You are SafeOCR, a local assistant that anonymizes FICTIVE Romanian identity cards for the user.
@@ -37,15 +47,12 @@ When the user attaches an image, the system has already run ocr_document, detect
 verify_redaction for you; read those reports and summarize briefly: which types of personal data were
 found and covered (with counts) and whether verification passed. The redacted image is shown to the user.
 
-If the user asks you to anonymize a document but NO image is attached in this conversation, do not pretend:
-ask them to attach the ID card image (paperclip button, drag & drop or paste).
-
 For follow-ups you can call tools. Use ids exactly as they appear in earlier reports:
 - redact_image(document_id, detection_ids) to redact only some detections (e.g. only the CNP)
 - verify_redaction(result_id), detect_pii(document_id), ocr_document(path) for samples like doc_03.png
 Personal data types: CNP, NAME, ADDRESS, ID_SERIES, ID_NUMBER, MRZ.
 
-Reply in the SAME language as the user's last message (English -> English, Romanian -> Romanian).
+Reply in the SAME language as the user's last message (any language).
 Plain text, short: 1-4 sentences or a short list."""
 
 MODEL_TOOLS = ("ocr_document", "detect_pii", "redact_image", "verify_redaction")
@@ -54,59 +61,6 @@ DOC_RE = re.compile(r"^doc_[0-9a-f]{12}$")
 RES_RE = re.compile(r"^res_[0-9a-f]{12}$")
 DET_RE = re.compile(r"^d\d{2}$")
 HISTORY_LIMIT = 40
-RO_HINT = re.compile(
-    r"[ăâîșşțţ]|\b(si|este|sunt|te rog|acum|doar|care|cum|pentru|ce|buletin\w*|anonimiz\w*|acoper\w*|date)\b",
-    re.IGNORECASE,
-)
-
-
-# Facts the model may use when asked about privacy, written in the answer language so a small
-# model can paraphrase them instead of improvising.
-PRIVACY_FACTS = {
-    "ro": """Cum îți protejează SafeOCR confidențialitatea (folosește aceste fapte când ești întrebat):
-- Totul rulează local, pe calculatorul tău: OCR-ul, detecția, mascarea și acest model (Ollama). Nimic nu este trimis în cloud.
-- Asistentul nu vede niciodată textul documentului tău sau datele tale personale, ci doar rapoarte: ce tipuri de date există, câte sunt și dacă verificarea a reușit.
-- Imaginea originală rămâne în stocarea locală. Rezultatul este o imagine NOUĂ, cu dreptunghiuri negre peste CNP, nume, adresă, seria și numărul actului și zona MRZ.
-- După mascare, OCR-ul rulează din nou pe imaginea nouă și confirmă că nu a mai rămas nicio dată personală lizibilă.""",
-    "en": """How SafeOCR protects your privacy (use these facts when asked):
-- Everything runs locally on your computer: OCR, detection, redaction and this model (Ollama). Nothing is sent to the cloud.
-- The assistant never sees your document's text or your personal data, only reports: which data types exist, how many, and whether verification passed.
-- The original image stays in the local store. The result is a NEW image with black boxes over the CNP, name, address, ID series and number, and the MRZ.
-- After redaction, OCR runs again on the new image to confirm that no personal data is still readable.""",
-}
-LANGUAGE_RULE = {
-    "ro": "IMPORTANT: Răspunde DOAR în limba română, corect gramatical. Despre utilizator vorbești la persoana a doua "
-    "(«datele tale», «confidențialitatea ta»); despre tine, la persoana întâi («pot detecta», «am acoperit»). "
-    "Spune doar ce reiese din rapoarte; nu adăuga afirmații generale.",
-    "en": "IMPORTANT: Reply ONLY in English, speaking directly to the user («you»). "
-    "Only state what the reports show; do not add generic claims.",
-}
-# Only inject the privacy facts when the question is about privacy; otherwise a small model pads
-# every answer with them (and contradicts the reports).
-PRIVACY_TOPIC = re.compile(
-    r"confiden|privac|protej|protect|cloud|sigur|secur|original|stoc|store|local|vede|see|trimi|send|server|gdpr",
-    re.IGNORECASE,
-)
-
-
-NO_IMAGE_STATE = {
-    "ro": "STARE: În această conversație NU a fost atașată nicio imagine. Dacă utilizatorul cere anonimizarea unui act, "
-    "răspunde exact: «Nu am primit încă nicio imagine. Atașează imaginea actului (butonul agrafă, drag & drop sau lipire) "
-    "și o anonimizez imediat.»",
-    "en": "STATE: NO image has been attached in this conversation. If the user asks to anonymize a document, reply exactly: "
-    "«I haven't received an image yet. Attach the ID card image (paperclip button, drag & drop or paste) and I'll anonymize it.»",
-}
-
-
-def _language(text: str) -> str:
-    return "ro" if RO_HINT.search(text) else "en"
-
-
-def _language_hint(text: str) -> str:
-    """Small models mirror the (English) system prompt, so state the rule in the answer language."""
-    return LANGUAGE_RULE[_language(text)]
-
-
 class IdTracker:
     """Latest real ids seen in the conversation (used to repair hallucinated arguments)."""
 
@@ -253,13 +207,18 @@ class ChatAgent:
     async def run(self, message: str, history: List[Dict[str, Any]], attachment: Optional[str] = None) -> AsyncIterator[Dict[str, Any]]:
         counter = itertools.count(1)
         next_id = lambda: f"t{next(counter)}"  # noqa: E731 - per-run, safe for concurrent chats
-        text = message.strip() or ("Anonimizează documentul atașat." if attachment else "")
-        hint = _language_hint(text)
-        facts = f"\n\n{PRIVACY_FACTS[_language(text)]}" if PRIVACY_TOPIC.search(text) else ""
+        past = _sanitize_history(history)
+        lang = detect_language(message, [m["content"] for m in past if m["role"] == "user"])
+        text = message.strip() or ("Anonimizează documentul atașat." if lang == "ro" else "Anonymize the attached document.")
+        hint = language_rule(lang)
+        # privacy facts only when asked about privacy; otherwise a small model pads every answer with them
+        facts = f"\n\n{privacy_facts(lang)}" if PRIVACY_TOPIC.search(text) else ""
         system = {"role": "system", "content": f"{SYSTEM_PROMPT}{facts}\n\n{hint}"}
-        msgs: List[Dict[str, Any]] = [system, *_sanitize_history(history)]
-        msgs.append({"role": "user", "content": f"[Imagine atașată: {attachment}]\n{text}" if attachment else text})
+        msgs: List[Dict[str, Any]] = [system, *past]
+        msgs.append({"role": "user", "content": f"[Attached image: {attachment}]\n{text}" if attachment else text})
         ids = IdTracker.from_messages(msgs)
+        redacted_counts: Dict[str, int] = {}
+        passed: Optional[bool] = None
 
         async with Client(self.mcp) as client:
             # 1) attached image -> deterministic pipeline through MCP
@@ -274,9 +233,13 @@ class ChatAgent:
                     yield {"type": "tool_result", "id": call_id, "name": name, **out}
                     if out["ok"]:
                         ids.update(out["report"])
+                        redacted_counts = out["report"].get("redacted_counts", redacted_counts)
+                        passed = out["report"].get("passed", passed)
                     if name == "announce":
-                        if out["ok"]:  # pre-digested summary helps a small model answer correctly
-                            msgs.append({"role": "system", "content": f"Pipeline summary: {out['report'].get('text', '')}"})
+                        # pre-digested summary (in the chat language) helps a small model answer correctly;
+                        # the announce tool itself speaks in the TTS voice's language
+                        summary = compose_announcement(redacted_counts, passed, summary_language(lang))
+                        msgs.append({"role": "system", "content": f"Pipeline summary: {summary}"})
                         break
                     msgs.append({"role": "assistant", "content": "", "tool_calls": [{"function": {"name": name, "arguments": args}}]})
                     msgs.append({"role": "tool", "tool_name": name, "content": _for_model(out["report"]) if out["ok"] else f"ERROR: {out['error']}"})
@@ -293,7 +256,8 @@ class ChatAgent:
             # 2) model turn(s); the model may call tools for follow-ups
             tools = await self._model_tools(client)
             max_rounds = self.settings.llm.max_tool_rounds
-            state = "" if ids.document_id else NO_IMAGE_STATE[_language(text)] + "\n"
+            asks_anonymize = bool(ANONYMIZE_INTENT.search(text))
+            state = no_image_state(lang) + "\n" if not ids.document_id and asks_anonymize else ""
             reminder = {"role": "system", "content": state + hint}
             try:
                 for round_no in range(max_rounds + 1):
