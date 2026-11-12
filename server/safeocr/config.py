@@ -1,0 +1,126 @@
+"""Settings: config/settings.yaml + environment overrides (SAFEOCR_<SECTION>__<KEY>)."""
+
+from __future__ import annotations
+
+import os
+from functools import lru_cache
+from pathlib import Path
+from typing import List, Literal, Optional, Tuple, Type
+
+from pydantic import BaseModel, Field
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+CONFIG_FILE = Path(os.environ.get("SAFEOCR_CONFIG", ROOT_DIR / "config" / "settings.yaml"))
+
+PII_TYPES = ["CNP", "NAME", "ADDRESS", "ID_SERIES", "ID_NUMBER", "MRZ"]
+
+
+class OCRSettings(BaseModel):
+    backend: Literal["stub", "tesseract"] = "stub"
+    lang: str = "ron+eng"
+    tesseract_cmd: Optional[str] = None
+    psm: int = 6
+    dark_threshold: float = 0.85
+
+
+class PathSettings(BaseModel):
+    samples_dir: Path = Path("data/samples")
+    uploads_dir: Path = Path("data/uploads")
+    store_dir: Path = Path("data/store")
+    allowed_input_dirs: List[Path] = Field(
+        default_factory=lambda: [Path("data/samples"), Path("data/uploads")]
+    )
+
+
+class RedactSettings(BaseModel):
+    padding: int = 4
+    color: str = "#000000"
+
+
+class PIISettings(BaseModel):
+    enabled_types: List[str] = Field(default_factory=lambda: list(PII_TYPES))
+
+
+class LLMSettings(BaseModel):
+    enabled: bool = False
+    provider: str = "ollama"
+    model: str = "qwen2.5:3b-instruct"
+    base_url: str = "http://localhost:11434"
+
+
+class TTSSettings(BaseModel):
+    enabled: bool = False
+    engine: str = "piper"
+    voice: str = "ro_RO-mihai-medium"
+    fallback_voice: str = "en_US-lessac-medium"
+    language: str = "ro"
+
+
+class APISettings(BaseModel):
+    cors_origins: List[str] = Field(
+        default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
+    )
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="SAFEOCR_",
+        env_nested_delimiter="__",
+        env_file=ROOT_DIR / ".env",
+        extra="ignore",
+        yaml_file=CONFIG_FILE,
+    )
+
+    ocr: OCRSettings = Field(default_factory=OCRSettings)
+    paths: PathSettings = Field(default_factory=PathSettings)
+    redact: RedactSettings = Field(default_factory=RedactSettings)
+    pii: PIISettings = Field(default_factory=PIISettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    tts: TTSSettings = Field(default_factory=TTSSettings)
+    api: APISettings = Field(default_factory=APISettings)
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: Type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+        # priority: explicit kwargs > env > .env > yaml
+        return (init_settings, env_settings, dotenv_settings, YamlConfigSettingsSource(settings_cls))
+
+    # --- helpers -----------------------------------------------------------
+    @staticmethod
+    def resolve(path: Path) -> Path:
+        """Resolve a configured path against the repository root."""
+        p = Path(path).expanduser()
+        return (p if p.is_absolute() else ROOT_DIR / p).resolve()
+
+    @property
+    def samples_dir(self) -> Path:
+        return self.resolve(self.paths.samples_dir)
+
+    @property
+    def uploads_dir(self) -> Path:
+        return self.resolve(self.paths.uploads_dir)
+
+    @property
+    def store_dir(self) -> Path:
+        return self.resolve(self.paths.store_dir)
+
+    @property
+    def allowed_input_dirs(self) -> List[Path]:
+        return [self.resolve(p) for p in self.paths.allowed_input_dirs]
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

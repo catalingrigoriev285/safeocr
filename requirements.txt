@@ -1,0 +1,27 @@
+# SafeOCR backend + MCP server. Python >= 3.10 (3.12 recommended).
+#   python3.12 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+
+# MCP
+fastmcp>=4.1,<5
+
+# API
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+
+# Config
+pydantic>=2.7
+pydantic-settings>=2.3
+pyyaml>=6.0
+
+# Imaging / OCR
+pillow>=10.4
+numpy>=1.26
+pytesseract>=0.3.13   # needs the tesseract binary: brew install tesseract tesseract-lang
+
+# Dev / tests
+pytest>=8.0
+httpx>=0.27
+
+# The project itself (server/safeocr) in editable mode
+-e .

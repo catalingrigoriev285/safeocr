@@ -1,0 +1,46 @@
+# SafeOCR configuration. Any key can be overridden by env vars:
+#   SAFEOCR_<SECTION>__<KEY>, e.g. SAFEOCR_OCR__BACKEND=tesseract
+# Relative paths are resolved against the repository root.
+
+ocr:
+  backend: stub            # stub | tesseract
+  lang: ron+eng            # tesseract languages (needs `brew install tesseract tesseract-lang`)
+  tesseract_cmd: null      # optional explicit path to the tesseract binary
+  psm: 6                   # tesseract page segmentation mode
+  dark_threshold: 0.85     # stub OCR: a word whose box is >= 85% dark is treated as unreadable
+
+paths:
+  samples_dir: data/samples
+  uploads_dir: data/uploads
+  store_dir: data/store
+  # ocr_document(path) only accepts images from these folders
+  allowed_input_dirs:
+    - data/samples
+    - data/uploads
+
+redact:
+  padding: 4               # px added around each word box
+  color: "#000000"
+
+pii:
+  enabled_types: [CNP, NAME, ADDRESS, ID_SERIES, ID_NUMBER, MRZ]
+
+# Future: local SLM used as an extra PII classifier (never a cloud model)
+llm:
+  enabled: false
+  provider: ollama
+  model: qwen2.5:3b-instruct
+  base_url: http://localhost:11434
+
+# Future: local CPU text-to-speech for the end-of-task announcement
+tts:
+  enabled: false
+  engine: piper
+  voice: ro_RO-mihai-medium
+  fallback_voice: en_US-lessac-medium
+  language: ro
+
+api:
+  cors_origins:
+    - http://localhost:3000
+    - http://127.0.0.1:3000

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env
+.env
+.env.local
+
+# Local data: generated samples, uploads and the private document store
+data/samples/*
+data/uploads/*
+data/store/*
+!data/**/.gitkeep
+
+# Node / Next.js
+node_modules/
+web/.next/
+web/out/
+web/next-env.d.ts
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/

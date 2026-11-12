@@ -1,0 +1,16 @@
+{
+  "$schema": "https://gofastmcp.com/public/schemas/fastmcp.json/v1.json",
+  "source": {
+    "type": "filesystem",
+    "path": "server/mcp_app.py",
+    "entrypoint": "mcp"
+  },
+  "deployment": {
+    "transport": "stdio",
+    "log_level": "INFO",
+    "cwd": ".",
+    "env": {
+      "SAFEOCR_OCR__BACKEND": "stub"
+    }
+  }
+}
