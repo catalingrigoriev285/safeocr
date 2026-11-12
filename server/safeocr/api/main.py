@@ -12,14 +12,16 @@ import hashlib
 import json
 import re
 import shutil
+import tempfile
 import time
 import uuid
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from pydantic import BaseModel, Field
@@ -29,6 +31,8 @@ from ..agent.ollama import OllamaClient
 from ..mcp_server import mcp, service
 from ..service import IMAGE_SUFFIXES
 from ..storage import NotFoundError
+from ..stt import STTError
+from ..tts import TTSError
 
 settings = service().settings
 agent = ChatAgent(mcp, settings, recall_fn=lambda rid: service().recall(rid))
@@ -52,6 +56,23 @@ class RunRequest(BaseModel):
 class Attachment(BaseModel):
     source: Literal["sample", "upload"]
     name: str
+
+
+class SpeakRequest(BaseModel):
+    text: str
+    language: Optional[str] = None
+
+
+AUDIO_SUFFIXES = {"audio/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".mp4", "audio/mpeg": ".mp3",
+                  "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/aac": ".aac"}
+MAX_AUDIO_BYTES = 25 * 1024 * 1024
+MD_RE = re.compile(r"[*_`#>]+|^\s*(?:[-•]|\d+[.)])\s+", re.MULTILINE)
+
+
+def _speakable(text: str) -> str:
+    """Plain text for TTS: no markdown symbols, collapsed whitespace, bounded length."""
+    text = re.sub(r"\s+", " ", MD_RE.sub("", text)).strip()
+    return text[:1500]
 
 
 class ChatRequest(BaseModel):
@@ -96,7 +117,58 @@ async def health() -> Dict:
             "voice": service().tts.voice,
             "language": settings.tts.language,
         },
+        "stt": {"enabled": settings.stt.enabled, "engine": service().stt.name, "model": service().stt.model},
     }
+
+
+@app.post("/api/transcribe")
+async def transcribe(file: UploadFile, language: Optional[str] = Form(None)) -> Dict:
+    """Speech-to-text for voice input. The audio is processed locally and deleted right away."""
+    if not settings.stt.enabled:
+        raise HTTPException(503, "Voice input is disabled. Set stt.enabled: true in config/settings.yaml.")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "empty audio")
+    if len(data) > MAX_AUDIO_BYTES:
+        raise HTTPException(413, "audio too long")
+    ctype = (file.content_type or "").split(";")[0].strip()
+    suffix = AUDIO_SUFFIXES.get(ctype) or Path(file.filename or "").suffix or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(data)
+        path = Path(tmp.name)
+    t0 = time.perf_counter()
+    try:
+        result = await run_in_threadpool(service().stt.transcribe, path, language or settings.stt.language)
+    except STTError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    finally:
+        path.unlink(missing_ok=True)
+    return {
+        "text": result.text,
+        "language": result.language,
+        "duration": result.duration,
+        "ms": round((time.perf_counter() - t0) * 1000),
+    }
+
+
+@app.post("/api/speak")
+async def speak(req: SpeakRequest) -> Response:
+    """Text-to-speech for chat replies (the replies contain no document values)."""
+    if not settings.tts.enabled:
+        raise HTTPException(503, "Voice output is disabled. Set tts.enabled: true in config/settings.yaml.")
+    text = _speakable(req.text)
+    if not text:
+        raise HTTPException(400, "nothing to speak")
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        path = Path(tmp.name)
+    try:
+        await run_in_threadpool(service().tts.synthesize, text, path, req.language)
+        audio = path.read_bytes()
+    except TTSError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    finally:
+        path.unlink(missing_ok=True)
+    return Response(audio, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/audio/{result_id}")

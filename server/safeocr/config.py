@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple, Type
+from typing import Dict, List, Literal, Optional, Tuple, Type
 
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -61,10 +61,12 @@ class LLMSettings(BaseModel):
 class MacTTSSettings(BaseModel):
     voice: str = "Ioana"  # `say -v '?'` lists voices; Ioana = ro_RO
     rate: Optional[int] = None  # words per minute
+    voices: Dict[str, str] = Field(default_factory=dict)  # per-language voices for chat replies, e.g. {en: Samantha}
 
 
 class PiperTTSSettings(BaseModel):
     model: Path = Path("models/piper/ro_RO-mihai-medium.onnx")
+    voices: Dict[str, Path] = Field(default_factory=dict)  # per-language models, e.g. {en: models/piper/en_US-...onnx}
 
 
 class OpenAITTSSettings(BaseModel):
@@ -82,6 +84,31 @@ class TTSSettings(BaseModel):
     macos: MacTTSSettings = Field(default_factory=MacTTSSettings)
     piper: PiperTTSSettings = Field(default_factory=PiperTTSSettings)
     openai: OpenAITTSSettings = Field(default_factory=OpenAITTSSettings)
+
+
+class FasterWhisperSettings(BaseModel):
+    model: str = "small"  # tiny | base | small | medium | large-v3 | turbo (bigger = better, slower)
+    device: str = "cpu"
+    compute_type: str = "int8"
+    download_root: Path = Path("models/whisper")
+
+
+class OpenAISTTSettings(BaseModel):
+    base_url: str = "http://localhost:8080/v1"  # LocalAI / whisper.cpp server / speaches / OpenAI
+    model: str = "whisper-1"
+    api_key_env: str = ""
+    timeout: float = 120.0
+
+
+class STTSettings(BaseModel):
+    """Speech-to-text for voice input. Audio is transcribed locally and never stored."""
+
+    enabled: bool = False
+    engine: Literal["faster-whisper", "openai"] = "faster-whisper"
+    language: Optional[str] = None  # None = auto-detect; or e.g. "ro"
+    max_seconds: int = 120
+    faster_whisper: FasterWhisperSettings = Field(default_factory=FasterWhisperSettings)
+    openai: OpenAISTTSettings = Field(default_factory=OpenAISTTSettings)
 
 
 class APISettings(BaseModel):
@@ -105,6 +132,7 @@ class Settings(BaseSettings):
     pii: PIISettings = Field(default_factory=PIISettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     tts: TTSSettings = Field(default_factory=TTSSettings)
+    stt: STTSettings = Field(default_factory=STTSettings)
     api: APISettings = Field(default_factory=APISettings)
 
     @classmethod

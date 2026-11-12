@@ -16,6 +16,7 @@ from .ocr import OCRError, OCRResult, get_ocr_backend
 from .pii import Detection, count_by_type, detect
 from .redact import redact
 from .storage import NotFoundError, Store, new_id, now_iso
+from .stt import get_stt
 from .tts import TTSError, compose_announcement, get_tts
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
@@ -32,6 +33,7 @@ class SafeOCRService:
         self.ocr = get_ocr_backend(self.settings.ocr)
         self.llm = get_llm(self.settings.llm)
         self.tts = get_tts(self.settings.tts)
+        self.stt = get_stt(self.settings.stt)
 
     # --- helpers ------------------------------------------------------------
     def _resolve_input(self, path: str) -> Path:
@@ -176,7 +178,7 @@ class SafeOCRService:
                   "voice": self.tts.voice, "audio": False}
         if self.settings.tts.enabled:
             try:
-                self.tts.synthesize(text, self.store.announcement_path(result_id))
+                self.tts.synthesize(text, self.store.announcement_path(result_id), lang)
                 report["audio"] = True
             except TTSError as exc:  # a missing voice must not break the pipeline
                 report["tts_error"] = str(exc)

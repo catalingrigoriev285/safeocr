@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 import wave
 from pathlib import Path
 from typing import Optional
@@ -26,14 +27,16 @@ class MacSayTTS:
 
     def __init__(self, cfg: MacTTSSettings):
         self.voice: Optional[str] = cfg.voice or None
+        self.voices = dict(cfg.voices)
         self.rate = cfg.rate
 
-    def synthesize(self, text: str, out_path: Path) -> None:
+    def synthesize(self, text: str, out_path: Path, language: Optional[str] = None) -> None:
         if not shutil.which("say"):
             raise TTSError("the `say` command is only available on macOS")
         cmd = ["say", "--file-format=WAVE", "--data-format=LEI16@22050", "-o", str(out_path)]
-        if self.voice:
-            cmd += ["-v", self.voice]
+        voice = self.voices.get(language or "", self.voice)
+        if voice:
+            cmd += ["-v", voice]
         if self.rate:
             cmd += ["-r", str(self.rate)]
         res = subprocess.run(cmd + ["--", text], capture_output=True, text=True, timeout=60)
@@ -47,24 +50,27 @@ class PiperTTS:
     def __init__(self, cfg: PiperTTSSettings):
         self.model_path = Settings.resolve(cfg.model)
         self.voice: Optional[str] = self.model_path.stem
-        self._voice = None
+        self.voices = {lang: Settings.resolve(p) for lang, p in cfg.voices.items()}
+        self._loaded: dict = {}
+        self._lock = threading.Lock()
 
-    def _load(self):
-        if self._voice is None:
-            try:
-                from piper import PiperVoice
-            except ImportError as exc:
-                raise TTSError("piper is not installed: pip install piper-tts") from exc
-            if not self.model_path.exists():
-                raise TTSError(
-                    f"Piper voice not found: {self.model_path}. Download it with "
-                    f"`python -m piper.download_voices {self.voice} --data-dir {self.model_path.parent}`"
-                )
-            self._voice = PiperVoice.load(str(self.model_path))
-        return self._voice
+    def _load(self, path: Path):
+        with self._lock:
+            if path not in self._loaded:
+                try:
+                    from piper import PiperVoice
+                except ImportError as exc:
+                    raise TTSError("piper is not installed: pip install piper-tts") from exc
+                if not path.exists():
+                    raise TTSError(
+                        f"Piper voice not found: {path}. Download it with "
+                        f"`python -m piper.download_voices {path.stem} --data-dir {path.parent}`"
+                    )
+                self._loaded[path] = PiperVoice.load(str(path))
+            return self._loaded[path]
 
-    def synthesize(self, text: str, out_path: Path) -> None:
-        voice = self._load()
+    def synthesize(self, text: str, out_path: Path, language: Optional[str] = None) -> None:
+        voice = self._load(self.voices.get(language or "", self.model_path))
         with wave.open(str(out_path), "wb") as wav_file:
             voice.synthesize_wav(text, wav_file)
 
@@ -77,7 +83,7 @@ class OpenAISpeechTTS:
         self.voice: Optional[str] = cfg.voice or None
         self._transport = transport  # for tests
 
-    def synthesize(self, text: str, out_path: Path) -> None:
+    def synthesize(self, text: str, out_path: Path, language: Optional[str] = None) -> None:
         payload = {"model": self.cfg.model, "input": text[:4000], "response_format": "wav"}
         if self.voice:
             payload["voice"] = self.voice

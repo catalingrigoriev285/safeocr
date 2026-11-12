@@ -294,4 +294,4 @@ class ChatAgent:
             except OllamaError as exc:
                 yield {"type": "error", "message": str(exc)}
 
-        yield {"type": "done", "history": msgs[1:]}
+        yield {"type": "done", "history": msgs[1:], "language": lang}

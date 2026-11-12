@@ -77,15 +77,15 @@ class TTSEngine(Protocol):
     name: str
     voice: Optional[str]
 
-    def synthesize(self, text: str, out_path: Path) -> None:
-        """Write a WAV file to out_path or raise TTSError."""
+    def synthesize(self, text: str, out_path: Path, language: Optional[str] = None) -> None:
+        """Write a WAV file to out_path or raise TTSError. `language` picks a per-language voice if configured."""
 
 
 class NoopTTS:
     name = "none"
     voice = None
 
-    def synthesize(self, text: str, out_path: Path) -> None:
+    def synthesize(self, text: str, out_path: Path, language: Optional[str] = None) -> None:
         raise TTSError("TTS is disabled (tts.enabled: false)")
 
 
