@@ -95,7 +95,7 @@ export default function VoiceMode({ ask, onClose, sttEnabled, ttsEnabled, hasAtt
           continue;
         }
         go("listening");
-        const audio = await m.record({ autoStop: true, silenceMs: 1200, maxMs: 30_000 });
+        const audio = await m.record({ autoStop: true, silenceMs: 1000, maxMs: 30_000 });
         if (!active.current) break;
         if (!audio) continue; // nothing said, or muted
         go("transcribing");

@@ -64,8 +64,11 @@ stt:
   language: null           # null = auto-detect, or force e.g. ro
   faster_whisper:
     model: small           # tiny | base | small | medium | large-v3 | turbo (first use downloads it)
-    device: cpu
-    compute_type: int8
+    device: auto           # auto = Apple GPU (mps) on Apple Silicon, else cpu
+    compute_type: auto     # auto = float16 on GPU, int8 on CPU
+    vad_filter: false      # browser already trims silence; true adds ~0.3-1 s
+    beam_size: 1           # 1 = fastest
+    preload: true          # load the model when the API starts
     download_root: models/whisper
   openai:                  # any OpenAI-compatible /v1/audio/transcriptions server
     base_url: http://localhost:8080/v1   # LocalAI / whisper.cpp server / speaches / OpenAI

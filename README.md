@@ -310,9 +310,24 @@ stt:
   faster_whisper:
     model: small          # first use downloads it to models/whisper (~460 MB)
 ```
-Restart uvicorn. `GET /api/health` should show `"stt": {"enabled": true, ...}`. Model choice on CPU:
-`base` (~140 MB) is fast but weak for Romanian, `small` is a good balance (~2 s per sentence on Apple Silicon),
-and `medium`/`turbo` are more accurate but slower.
+Restart uvicorn. `GET /api/health` should show `"stt": {"enabled": true, "device": "mps/float16", ...}`.
+
+**Speed** (Whisper `small`, Apple M4, measured through `/api/transcribe`):
+
+| Setting | 3 s question | 10 s sentence |
+|---|---|---|
+| CPU, Whisper VAD + timestamps (old defaults) | ~2.6 s (+ ~1 s model load on first use) | — |
+| CPU, tuned | 1.8 s | 2.2 s |
+| **Apple GPU (`device: auto` → mps), tuned (default)** | **0.8 s** | **1.1 s** |
+| … plus `language: ro` (skips language detection) | 0.5 s | 0.8 s |
+
+The defaults already do the fast things: the Apple GPU when available (falls back to CPU), no timestamps, no second
+voice-activity pass (the browser trims silence), greedy decoding, and the model is **preloaded at startup**. Extra levers:
+
+- `stt.language: ro` saves ~0.3–0.5 s if everyone speaks Romanian (disables auto-detection, so no other languages).
+- Model size: `base` (~140 MB) is ~3× faster but poor for Romanian (it misheard "detecta" and detected Italian);
+  `turbo` / `large-v3` are more accurate (e.g. for "CNP-ul") but slower and 1.5–3 GB.
+- On Linux/Windows with an NVIDIA GPU: `device: cuda`.
 
 The browser asks for microphone permission the first time; `localhost` counts as a secure origin.
 

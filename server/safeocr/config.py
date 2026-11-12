@@ -88,8 +88,12 @@ class TTSSettings(BaseModel):
 
 class FasterWhisperSettings(BaseModel):
     model: str = "small"  # tiny | base | small | medium | large-v3 | turbo (bigger = better, slower)
-    device: str = "cpu"
-    compute_type: str = "int8"
+    device: str = "auto"  # auto = Apple GPU (mps) on Apple Silicon, else cpu; or cpu | mps | cuda
+    compute_type: str = "auto"  # auto = float16 on mps/cuda, int8 on cpu
+    cpu_threads: int = 0  # 0 = library default
+    vad_filter: bool = False  # the browser already trims silence; Whisper's own VAD adds ~0.3-1 s
+    beam_size: int = 1  # 1 = greedy (fastest); 5 = slightly more accurate, slower
+    preload: bool = True  # load + warm up the model when the API starts (no slow first request)
     download_root: Path = Path("models/whisper")
 
 

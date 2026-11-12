@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import threading
+from contextlib import asynccontextmanager
 import re
 import shutil
 import tempfile
@@ -38,7 +41,21 @@ settings = service().settings
 agent = ChatAgent(mcp, settings, recall_fn=lambda rid: service().recall(rid))
 NAME_RE = re.compile(r"^[\w.-]+$")
 
-app = FastAPI(title="SafeOCR API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # load + warm up Whisper in the background so the first voice request isn't slow
+    if settings.stt.enabled and settings.stt.engine == "faster-whisper" and settings.stt.faster_whisper.preload:
+        def _warm() -> None:
+            try:
+                service().stt.warmup()
+            except Exception as exc:  # noqa: BLE001 - reported again on the first real request
+                logging.getLogger("safeocr.stt").warning("STT warm-up failed: %s", exc)
+
+        threading.Thread(target=_warm, name="stt-warmup", daemon=True).start()
+    yield
+
+
+app = FastAPI(title="SafeOCR API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.api.cors_origins,
@@ -117,7 +134,12 @@ async def health() -> Dict:
             "voice": service().tts.voice,
             "language": settings.tts.language,
         },
-        "stt": {"enabled": settings.stt.enabled, "engine": service().stt.name, "model": service().stt.model},
+        "stt": {
+            "enabled": settings.stt.enabled,
+            "engine": service().stt.name,
+            "model": service().stt.model,
+            "device": getattr(service().stt, "device", None),  # e.g. mps/float16 once loaded
+        },
     }
 
 
